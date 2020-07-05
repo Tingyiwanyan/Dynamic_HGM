@@ -28,16 +28,16 @@ class dynamic_hgm():
         self.patient_size = len(list(kg.dic_patient))
         self.input_seq = []
         self.threshold = 0.5
-        self.positive_lab_size = 2
-        self.negative_lab_size = 2
+        self.positive_lab_size = 5
+        self.negative_lab_size = 10
         self.positive_sample_size = self.positive_lab_size + 1
         self.negative_sample_size = self.negative_lab_size + 1
         """
         define LSTM variables
         """
-        self.init_hiddenstate = tf.placeholder(tf.float32, [None, self.latent_dim])
+        self.init_hiddenstate = tf.placeholder(tf.float32, [None, 1+self.positive_lab_size+self.negative_lab_size,self.latent_dim])
         self.input_y_logit = tf.placeholder(tf.float32, [None, 2])
-        self.input_x = tf.placeholder(tf.float32,[None,self.time_sequence,self.item_size])
+        self.input_x = tf.placeholder(tf.float32,[None,self.time_sequence,1+self.positive_lab_size+self.negative_lab_size,self.item_size])
         self.input_y_diag_single = tf.placeholder(tf.float32,[None,self.diagnosis_size])
         self.input_y_diag = tf.placeholder(tf.float32,[None,self.time_sequence,self.diagnosis_size])
         self.init_forget_gate = tf.keras.initializers.he_normal(seed=None)
@@ -96,9 +96,9 @@ class dynamic_hgm():
         for i in range(self.time_sequence):
             x_input_cur = tf.gather(self.input_x, i, axis=1)
             if i == 0:
-                concat_cur = tf.concat([self.init_hiddenstate,x_input_cur],1)
+                concat_cur = tf.concat([self.init_hiddenstate,x_input_cur],2)
             else:
-                concat_cur = tf.concat([hidden_rep[i-1],x_input_cur],1)
+                concat_cur = tf.concat([hidden_rep[i-1],x_input_cur],2)
             forget_cur = \
                 tf.math.sigmoid(tf.math.add(tf.matmul(concat_cur,self.weight_forget_gate),self.bias_forget_gate))
             info_cur = \
@@ -142,8 +142,9 @@ class dynamic_hgm():
         """
         Build dynamic HGM model
         """
-        self.Dense_patient = tf.expand_dims(self.hidden_last,1)
-        #self.Dense_patient = self.hidden_last
+        #self.Dense_patient = tf.expand_dims(self.hidden_last,1)
+        self.Dense_patient = self.hidden_last
+        #self.Dense_patient = tf.expand_dims(self.hidden_rep,2)
 
         self.Dense_mortality_ = \
             tf.nn.relu(tf.math.add(tf.matmul(self.mortality,self.weight_mortality),self.bias_mortality))
@@ -168,22 +169,40 @@ class dynamic_hgm():
         idx_neg_mortality = tf.constant([1])
         self.x_negative = tf.gather(self.Dense_mortality,idx_neg_mortality,axis=1)
 
-
+        """
         item_idx_skip = tf.constant([i+1 for i in range(self.positive_lab_size)])
-        self.x_skip_item = tf.gather(self.Dense_patient,item_idx_skip,axis=1)
+        self.x_skip_item = tf.gather(self.Dense_lab,item_idx_skip,axis=1)
         item_idx_negative = tf.constant([i+self.positive_lab_size+1 for i in range(self.negative_lab_size)])
-        self.x_negative_item = tf.gather(self.Dense_patient,item_idx_negative,axis=1)
+        self.x_negative_item = tf.gather(self.Dense_lab,item_idx_negative,axis=1)
 
         self.x_skip = tf.concat([self.x_skip,self.x_skip_item],axis=1)
         self.x_negative = tf.concat([self.x_negative,self.x_negative_item],axis=1)
+        """
+        patient_idx_skip = tf.constant([i+1 for i in range(self.positive_lab_size)])
+        self.x_skip_patient = tf.gather(self.Dense_patient,patient_idx_skip,axis=1)
+        patient_idx_negative = tf.constant([i+self.positive_lab_size+1 for i in range(self.negative_lab_size)])
+        self.x_negative_patient = tf.gather(self.Dense_patient,patient_idx_negative,axis=1)
+
+        self.x_skip = tf.concat([self.x_skip,self.x_skip_patient],axis=1)
+        self.x_negative = tf.concat([self.x_negative,self.x_negative_patient],axis=1)
 
 
     def get_positive_patient(self,center_node_index):
-        self.patient_pos_sample = np.zeros((self.positive_lab_size,self.time_sequence, self.item_size))
+        self.patient_pos_sample = np.zeros((self.time_sequence,self.positive_lab_size+1, self.item_size))
         if self.kg.dic_patient[center_node_index]['flag'] == 0:
             neighbor_patient = self.kg.dic_death[0]
         else:
             neighbor_patient = self.kg.dic_death[1]
+        time_seq = self.kg.dic_patient[center_node_index]['prior_time'].keys()
+        time_seq_int = [np.int(k) for k in time_seq]
+        time_seq_int.sort()
+        time_index = 0
+        for j in self.time_seq_int:
+            if time_index == self.time_sequence:
+                break
+            one_data = self.assign_value_patient(self.patient_id, j)
+            self.patient_pos_sample[time_index,0, :] = one_data
+            time_index += 1
         for i in range(self.positive_lab_size):
             index_neighbor = np.int(np.floor(np.random.uniform(0, len(neighbor_patient), 1)))
             patient_id = neighbor_patient[index_neighbor]
@@ -196,10 +215,11 @@ class dynamic_hgm():
                     break
                 #self.time_index = np.int(j)
                 one_data = self.assign_value_patient(patient_id,j)
-                self.patient_pos_sample[i,time_index,:] = one_data
+                self.patient_pos_sample[time_index,i+1,:] = one_data
+                time_index += 1
 
     def get_negative_patient(self,center_node_index):
-        self.patient_neg_sample = np.zeros((self.negative_lab_size,self.time_sequence, self.item_size))
+        self.patient_neg_sample = np.zeros((self.time_sequence,self.negative_lab_size,self.item_size))
         if self.kg.dic_patient[center_node_index]['flag'] == 0:
             neighbor_patient = self.kg.dic_death[1]
         else:
@@ -216,7 +236,8 @@ class dynamic_hgm():
                     break
                 #self.time_index = np.int(j)
                 one_data = self.assign_value_patient(patient_id,j)
-                self.patient_neg_sample[i,time_index,:] = one_data
+                self.patient_neg_sample[time_index,i,:] = one_data
+                time_index += 1
 
     def get_positive_samples(self,center_node_index,time):
         self.pos_nodes_item = []
@@ -235,6 +256,24 @@ class dynamic_hgm():
             one_sample_pos_item = self.assign_value_item(center_node_index,item_neighbor,time)
             self.item_pos_sample[index,:] = one_sample_pos_item
             index += 1
+
+    def get_positive_samples_whole(self,center_node_index):
+        self.item_pos_sample = np.zeros((self.time_sequence,self.positive_lab_size,self.item_size))
+        time_seq = self.kg.dic_patient[center_nodes_index]['prior_time'].keys()
+        time_seq_int = [np.int(k) for k in time_seq]
+        time_seq_int.sort()
+        time_index = 0
+        for k in time_seq_int:
+            if time_index == self.time_sequence:
+                break
+            item_neighbor_nodes = self.kg.dic_patient[center_node_index]['prior_time'][str(k)].keys()
+            for j in range(self.positive_lab_size):
+                index_item = np.int(np.floor(np.random.uniform(0,len(item_neighbor_nodes),1)))
+                item_neighbor = item_neighbor_nodes[index_item]
+                one_sample_pos_item = self.assign_value_item(center_node_index, item_neighbor, k)
+                self.item_pos_sample[time_index, j, :] = one_sample_pos_item
+
+
 
     """
     def get_positive_sample_rep(self):
@@ -256,7 +295,7 @@ class dynamic_hgm():
         item_neighbor_nodes = self.kg.dic_patient[center_node_index]['prior_time'][str(time)].keys()
         whole_item_nodes = self.kg.dic_item.keys()
         neg_set_item = [i for i in whole_item_nodes if i not in item_neighbor_nodes_whole]
-        index_item_count = 0
+        #index_item_count = 0
         for j in range(self.negative_lab_size):
             index_item = np.int(np.floor(np.random.uniform(0, len(item_neighbor_nodes), 1)))
             item_neighbor = item_neighbor_nodes[index_item]
@@ -268,8 +307,36 @@ class dynamic_hgm():
                 neg_node = neg_set_item[index_sample]
                 one_sample_neg_item = self.assign_value_item_neg_whole(neg_node)
                 #self.neg_nodes_item.append(neg_set_item[index_sample])
-            self.item_neg_sample[index_item_count,:] = one_sample_neg_item
-            index_item_count += 1
+            self.item_neg_sample[j,:] = one_sample_neg_item
+            #index_item_count += 1
+
+    def get_negative_samples_whole(self,center_nodes_index):
+        self.item_neg_sample = np.zeros((self.time_sequence,self.negative_lab_size,self.item_size))
+        item_neighbor_nodes_whole = self.kg.dic_patient[center_node_index]['itemid'].keys()
+        time_seq = self.kg.dic_patient[center_nodes_index]['prior_time'].keys()
+        time_seq_int = [np.int(k) for k in time_seq]
+        time_seq_int.sort()
+        time_index = 0
+        whole_item_nodes = self.kg.dic_item.keys()
+        neg_set_item = [i for i in whole_item_nodes if i not in item_neighbor_nodes_whole]
+        for k in time_seq_int:
+            if time_index == self.time_sequence:
+                break
+            item_neighbor_nodes = self.kg.dic_patient[center_node_index]['prior_time'][str(k)].keys()
+            for j in range(self.negative_lab_size):
+                index_item = np.int(np.floor(np.random.uniform(0, len(item_neighbor_nodes), 1)))
+                item_neighbor = item_neighbor_nodes[index_item]
+                if len(self.kg.dic_item[item_neighbor]['index_relation'].keys()) > 1:
+                    one_sample_neg_item = self.assign_value_item_neg(center_node_index, item_neighbor, k)
+                else:
+                    # print("im here")
+                    index_sample = np.int(np.floor(np.random.uniform(0, len(neg_set_item), 1)))
+                    neg_node = neg_set_item[index_sample]
+                    one_sample_neg_item = self.assign_value_item_neg_whole(neg_node)
+
+                self.item_neg_sample[time_index,j,:] = one_sample_neg_item
+            time_index += 1
+
     """
     def get_negative_sample_rep(self):
         self.item_neg_sample = np.zeros((self.negative_lab_size,self.item_size))
@@ -404,8 +471,8 @@ class dynamic_hgm():
         """
         get training batch data
         """
-        train_one_batch = np.zeros((data_length, self.time_sequence,self.item_size))
-        train_one_batch_item = np.zeros((data_length,self.positive_lab_size+self.negative_lab_size,self.item_size))
+        train_one_batch = np.zeros((data_length, self.time_sequence,1+self.positive_lab_size+self.negative_lab_size,self.item_size))
+        #train_one_batch_item = np.zeros((data_length,self.positive_lab_size+self.negative_lab_size,self.item_size))
         train_one_batch_mortality = np.zeros((data_length,2,2))
         one_batch_logit = np.zeros((data_length,2))
         self.real_logit = np.zeros(data_length)
@@ -442,11 +509,11 @@ class dynamic_hgm():
                 train_one_batch_mortality[i,0,:] = [0,1]
                 train_one_batch_mortality[i,1,:] = [1,0]
                 one_batch_logit[i, 1] = 1
-            """
-            self.get_positive_samples(self.patient_id)
-            self.get_positive_sample_rep()
-            self.get_negative_samples(self.patient_id)
-            self.get_negative_sample_rep()
+
+            self.get_positive_patient(self.patient_id)
+            self.get_negative_patient(self.patient_id)
+            train_one_data = np.concatenate((self.patient_pos_sample,self.patient_neg_sample),axis=1)
+            train_one_batch[i,:,:,:] = train_one_data
             """
             if len(self.time_seq_int) < self.time_sequence:
                 time_item_assign = self.time_seq_int[-1]
@@ -468,25 +535,67 @@ class dynamic_hgm():
                 self.one_data = self.assign_value_patient(self.patient_id,j)
                 train_one_batch[i,time_index,:] = self.one_data
                 time_index += 1
+            """
 
-        return train_one_batch, one_batch_logit, train_one_batch_mortality,train_one_batch_item
+        return train_one_batch,one_batch_logit, train_one_batch_mortality
+
+    def get_batch_test(self,data_length,start_index,data):
+        """
+        get training batch data
+        """
+        train_one_batch = np.zeros((data_length, self.time_sequence,1+self.positive_lab_size+self.negative_lab_size,self.item_size))
+        #train_one_batch_item = np.zeros((data_length,self.positive_lab_size+self.negative_lab_size,self.item_size))
+        train_one_batch_mortality = np.zeros((data_length,2,2))
+        one_batch_logit = np.zeros((data_length,2))
+        self.real_logit = np.zeros(data_length)
+        #self.item_neg_sample = np.zeros((self.negative_lab_size, self.item_size))
+        #self.item_pos_sample = np.zeros((self.positive_lab_size, self.item_size))
+        index_batch = 0
+        index_increase = 0
+        #while index_batch < data_length:
+        for i in range(data_length):
+            self.patient_id = data[start_index + i]
+            #if self.kg.dic_patient[self.patient_id]['item_id'].keys() == {}:
+             #   index_increase += 1
+              #  continue
+            #index_batch += 1
+            self.time_seq = self.kg.dic_patient[self.patient_id]['prior_time'].keys()
+            self.time_seq_int = [np.int(k) for k in self.time_seq]
+            self.time_seq_int.sort()
+            time_index = 0
+            flag = self.kg.dic_patient[self.patient_id]['flag']
+            if flag == 0:
+                train_one_batch_mortality[i,0,:] = [1,0]
+                train_one_batch_mortality[i,1,:] = [0,1]
+                one_batch_logit[i, 0] = 1
+            else:
+                train_one_batch_mortality[i,0,:] = [0,1]
+                train_one_batch_mortality[i,1,:] = [1,0]
+                one_batch_logit[i, 1] = 1
+
+            self.get_positive_patient(self.patient_id)
+            self.get_negative_patient(self.patient_id)
+            train_one_data = np.concatenate((self.patient_pos_sample,self.patient_neg_sample),axis=1)
+            train_one_batch[i,:,:,:] = train_one_data
+
+        return train_one_batch,one_batch_logit, train_one_batch_mortality
 
     def train(self):
         """
         train the system
         """
-        init_hidden_state = np.zeros((self.batch_size,self.latent_dim))
+        init_hidden_state = np.zeros((self.batch_size,1+self.positive_lab_size+self.negative_lab_size,self.latent_dim))
         iteration = np.int(np.floor(np.float(self.length_train)/self.batch_size))
 
         for j in range(self.epoch):
             print('epoch')
             print(j)
             for i in range(iteration):
-                self.train_one_batch, self.one_batch_logit,self.one_batch_mortality,self.one_batch_item = self.get_batch_train(self.batch_size,i*self.batch_size,self.train_data)
+                self.train_one_batch, self.one_batch_logit,self.one_batch_mortality = self.get_batch_train(self.batch_size,i*self.batch_size,self.train_data)
 
                 self.err_ = self.sess.run([self.negative_sum, self.train_step_neg],
                                      feed_dict={self.input_x: self.train_one_batch,
-                                                self.lab_test: self.one_batch_item,
+                                                #self.lab_test: self.one_batch_item,
                                                 self.mortality: self.one_batch_mortality,
                                                 self.init_hiddenstate:init_hidden_state})
                 print(self.err_[0])
@@ -501,10 +610,10 @@ class dynamic_hgm():
 
 
     def test(self):
-        init_hidden_state = np.zeros((self.length_test, self.latent_dim))
-        self.test_data_batch, self.test_logit, self.test_mortality,self.test_item = self.get_batch_train(self.length_test, 0, self.test_data)
+        init_hidden_state = np.zeros((self.length_test, 1+self.positive_lab_size+self.negative_lab_size, self.latent_dim))
+        self.test_data_batch, self.test_logit, self.test_mortality = self.get_batch_train(self.length_test, 0, self.test_data)
         self.test_patient = self.sess.run(self.hidden_last, feed_dict={self.input_x: self.test_data_batch,
-                                                                  self.init_hiddenstate: init_hidden_state})
+                                                                  self.init_hiddenstate: init_hidden_state})[:,0,:]
         single_mortality = np.zeros((1,2,2))
         single_mortality[0][0][0] = 1
         single_mortality[0][1][1] = 1

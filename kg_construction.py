@@ -227,13 +227,13 @@ class Kg_construct_ehr():
 if __name__ == "__main__":
     kg = Kg_construct_ehr()
     #kg.create_kg_dic()
-    f = open("dic_patient.json")
+    f = open("/home/tingyi/DHGM_data/dic_patient.json")
     kg.dic_patient = json.load(f)
     f.close()
-    f = open("dic_item.json")
+    f = open("/home/tingyi/DHGM_data/dic_item.json")
     kg.dic_item = json.load(f)
     f.close()
-    f = open("dic_diag.json")
+    f = open("/home/tingyi/DHGM_data/dic_diag.json")
     kg.dic_diag = json.load(f)
     f.close()
     index_relation = 0

@@ -2,10 +2,8 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="398e81ef-1c1b-4828-a7df-5d65147b1a81" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/Data_process.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Dynamic_HGM.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/LSTM.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Dynamic_HGM.py" beforeDir="false" afterPath="$PROJECT_DIR$/Dynamic_HGM.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/kg_construction.py" beforeDir="false" afterPath="$PROJECT_DIR$/kg_construction.py" afterDir="false" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
